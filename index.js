@@ -18,6 +18,7 @@ db.serialize(() => {
             channel TEXT NOT NULL,
             username TEXT NOT NULL,
             userid TEXT NOT NULL,
+            profilePicture TEXT NOT NULL,
             message TEXT NOT NULL,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
@@ -52,17 +53,8 @@ function generateUserId() {
     return Math.random().toString(36).substring(2, 10).toUpperCase();
 }
 
-// Generate a random profile picture URL
-function generateProfilePicture() {
-    const avatars = [
-        'https://i.pravatar.cc/150?img=1',
-        'https://i.pravatar.cc/150?img=2',
-        'https://i.pravatar.cc/150?img=3',
-        'https://i.pravatar.cc/150?img=4',
-        'https://i.pravatar.cc/150?img=5',
-    ];
-    return avatars[Math.floor(Math.random() * avatars.length)];
-}
+// Default profile picture
+const DEFAULT_PROFILE_PICTURE = 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png';
 
 // Store active users
 const activeUsers = new Map();
@@ -91,10 +83,11 @@ app.get('/', (req, res) => {
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Discord-like Chat</title>
+            <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
             <style>
                 body {
                     margin: 0;
-                    font-family: Arial, sans-serif;
+                    font-family: 'Roboto', sans-serif;
                     display: flex;
                     height: 100vh;
                     background-color: #36393f;
@@ -108,12 +101,16 @@ app.get('/', (req, res) => {
                     width: 250px;
                     background-color: #2f3136;
                     padding: 10px;
+                    border-radius: 8px;
+                    margin: 10px;
                 }
                 .main {
                     flex: 1;
                     display: flex;
                     flex-direction: column;
                     background-color: #36393f;
+                    border-radius: 8px;
+                    margin: 10px;
                 }
                 .chat {
                     flex: 1;
@@ -124,6 +121,8 @@ app.get('/', (req, res) => {
                     width: 250px;
                     background-color: #2f3136;
                     padding: 10px;
+                    border-radius: 8px;
+                    margin: 10px;
                 }
                 #message-input {
                     padding: 10px;
@@ -131,14 +130,17 @@ app.get('/', (req, res) => {
                     background-color: #40444b;
                     color: white;
                     margin-top: 10px;
+                    border-radius: 8px;
                 }
                 #channels, #users {
                     list-style: none;
                     padding: 0;
                 }
                 #channels li, #users li {
-                    padding: 5px;
+                    padding: 10px;
                     cursor: pointer;
+                    border-radius: 4px;
+                    margin-bottom: 5px;
                 }
                 #channels li:hover, #users li:hover {
                     background-color: #40444b;
@@ -184,6 +186,38 @@ app.get('/', (req, res) => {
                     border-radius: 50%;
                     margin-right: 10px;
                 }
+                .ban-panel {
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background-color: #2f3136;
+                    padding: 20px;
+                    border-radius: 8px;
+                    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+                    display: none;
+                }
+                .ban-panel input {
+                    padding: 10px;
+                    border: none;
+                    background-color: #40444b;
+                    color: white;
+                    border-radius: 4px;
+                    margin-bottom: 10px;
+                    width: 100%;
+                }
+                .ban-panel button {
+                    padding: 10px;
+                    border: none;
+                    background-color: #7289da;
+                    color: white;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    width: 100%;
+                }
+                .ban-panel button:hover {
+                    background-color: #677bc4;
+                }
             </style>
         </head>
         <body>
@@ -194,6 +228,7 @@ app.get('/', (req, res) => {
                         <li data-channel="general">General</li>
                         <li data-channel="random">Random</li>
                     </ul>
+                    <button id="open-ban-panel">Ban/Unban Panel</button>
                 </div>
                 <div class="main">
                     <div class="chat" id="messages"></div>
@@ -204,6 +239,14 @@ app.get('/', (req, res) => {
                     <ul id="users"></ul>
                 </div>
             </div>
+            <div class="ban-panel" id="ban-panel">
+                <input type="password" id="passcode" placeholder="Enter passcode">
+                <input type="text" id="username-to-ban" placeholder="Enter username">
+                <input type="text" id="ban-reason" placeholder="Enter reason">
+                <button id="ban-button">Ban User</button>
+                <button id="unban-button">Unban User</button>
+                <button id="close-ban-panel">Close</button>
+            </div>
             <script src="/socket.io/socket.io.js"></script>
             <script>
                 const socket = io();
@@ -211,6 +254,14 @@ app.get('/', (req, res) => {
                 const messageInput = document.getElementById('message-input');
                 const usersList = document.getElementById('users');
                 const channelsList = document.getElementById('channels');
+                const banPanel = document.getElementById('ban-panel');
+                const openBanPanelButton = document.getElementById('open-ban-panel');
+                const closeBanPanelButton = document.getElementById('close-ban-panel');
+                const banButton = document.getElementById('ban-button');
+                const unbanButton = document.getElementById('unban-button');
+                const passcodeInput = document.getElementById('passcode');
+                const usernameToBanInput = document.getElementById('username-to-ban');
+                const banReasonInput = document.getElementById('ban-reason');
 
                 let currentChannel = 'general';
 
@@ -275,6 +326,43 @@ app.get('/', (req, res) => {
                     }
                 });
 
+                // Ban/Unban panel logic
+                openBanPanelButton.addEventListener('click', () => {
+                    banPanel.style.display = 'block';
+                });
+
+                closeBanPanelButton.addEventListener('click', () => {
+                    banPanel.style.display = 'none';
+                });
+
+                banButton.addEventListener('click', () => {
+                    const passcode = passcodeInput.value;
+                    const username = usernameToBanInput.value;
+                    const reason = banReasonInput.value;
+                    if (passcode === '0609') {
+                        socket.emit('ban user', { username, reason });
+                        passcodeInput.value = '';
+                        usernameToBanInput.value = '';
+                        banReasonInput.value = '';
+                        banPanel.style.display = 'none';
+                    } else {
+                        alert('Incorrect passcode');
+                    }
+                });
+
+                unbanButton.addEventListener('click', () => {
+                    const passcode = passcodeInput.value;
+                    const username = usernameToBanInput.value;
+                    if (passcode === '0609') {
+                        socket.emit('unban user', { username });
+                        passcodeInput.value = '';
+                        usernameToBanInput.value = '';
+                        banPanel.style.display = 'none';
+                    } else {
+                        alert('Incorrect passcode');
+                    }
+                });
+
                 // Socket.IO events
                 socket.on('load messages', (messages) => {
                     messages.forEach(displayMessage);
@@ -296,6 +384,11 @@ app.get('/', (req, res) => {
 
                 socket.on('user banned', (data) => {
                     alert(\`You have been banned. Reason: \${data.reason}\`);
+                    window.location.reload();
+                });
+
+                socket.on('user unbanned', () => {
+                    alert('You have been unbanned.');
                     window.location.reload();
                 });
             </script>
@@ -327,7 +420,7 @@ io.on('connection', (socket) => {
             } else {
                 username = generateUsername();
                 userid = generateUserId();
-                profilePicture = generateProfilePicture();
+                profilePicture = DEFAULT_PROFILE_PICTURE;
                 db.run('INSERT INTO users (ip, username, userid, profilePicture) VALUES (?, ?, ?, ?)', [ip, username, userid, profilePicture]);
             }
             activeUsers.set(socket.id, { username, userid, profilePicture, ip });
@@ -343,7 +436,7 @@ io.on('connection', (socket) => {
         socket.on('send message', (data) => {
             const { channel, message } = data;
             const user = activeUsers.get(socket.id);
-            db.run('INSERT INTO messages (channel, username, userid, message) VALUES (?, ?, ?, ?)', [channel, user.username, user.userid, message], (err) => {
+            db.run('INSERT INTO messages (channel, username, userid, profilePicture, message) VALUES (?, ?, ?, ?, ?)', [channel, user.username, user.userid, user.profilePicture, message], (err) => {
                 if (err) return console.error(err);
                 io.emit('receive message', { channel, ...user, message, timestamp: new Date().toISOString() });
             });
@@ -368,6 +461,33 @@ io.on('connection', (socket) => {
                     if (err) return console.error(err);
                     io.to(socket.id).emit('user banned', { username, reason });
                     io.sockets.sockets.get(socket.id)?.disconnect(true); // Disconnect the banned user
+                });
+            }
+        });
+
+        // Admin command to unban a user
+        socket.on('unban user', (data) => {
+            const { username } = data;
+            db.get('SELECT ip FROM users WHERE username = ?', [username], (err, row) => {
+                if (row) {
+                    db.run('DELETE FROM bans WHERE ip = ?', [row.ip], (err) => {
+                        if (err) return console.error(err);
+                        io.emit('user unbanned');
+                    });
+                }
+            });
+        });
+
+        // Handle username and profile picture changes
+        socket.on('update profile', (data) => {
+            const { username, profilePicture } = data;
+            const user = activeUsers.get(socket.id);
+            if (user) {
+                user.username = username || user.username;
+                user.profilePicture = profilePicture || DEFAULT_PROFILE_PICTURE;
+                db.run('UPDATE users SET username = ?, profilePicture = ? WHERE ip = ?', [user.username, user.profilePicture, user.ip], (err) => {
+                    if (err) return console.error(err);
+                    io.emit('user connected', { activeUsers: Array.from(activeUsers.values()) });
                 });
             }
         });
