@@ -215,8 +215,8 @@ app.get('/', (req, res) => {
                 }
                 .ban-panel {
                     position: fixed;
-                    bottom: 20px;
-                    right: 220px;
+                    bottom: 80px;
+                    right: 20px;
                     background-color: #2f3136;
                     padding: 20px;
                     border-radius: 8px;
