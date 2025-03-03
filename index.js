@@ -65,7 +65,7 @@ app.use((req, res, next) => {
     db.get('SELECT reason FROM bans WHERE ip = ?', [ip], (err, row) => {
         if (row) {
             res.send(`
-                <h1>You are no longer welcome on this site</h1>
+                <h1 style="font-size: 1.5rem;">You are no longer welcome on this site</h1>
                 <p>Reason: ${row.reason}</p>
             `);
         } else {
@@ -186,11 +186,37 @@ app.get('/', (req, res) => {
                     border-radius: 50%;
                     margin-right: 10px;
                 }
+                .settings-panel {
+                    position: fixed;
+                    bottom: 20px;
+                    right: 20px;
+                    background-color: #2f3136;
+                    padding: 10px;
+                    border-radius: 8px;
+                    display: flex;
+                    align-items: center;
+                }
+                .settings-panel img {
+                    width: 40px;
+                    height: 40px;
+                    border-radius: 50%;
+                    margin-right: 10px;
+                }
+                .settings-panel .user-info {
+                    display: flex;
+                    flex-direction: column;
+                }
+                .settings-panel .username {
+                    font-weight: bold;
+                }
+                .settings-panel .userid {
+                    color: #72767d;
+                    font-size: 0.9em;
+                }
                 .ban-panel {
                     position: fixed;
-                    top: 50%;
-                    left: 50%;
-                    transform: translate(-50%, -50%);
+                    bottom: 20px;
+                    right: 220px;
                     background-color: #2f3136;
                     padding: 20px;
                     border-radius: 8px;
@@ -228,7 +254,6 @@ app.get('/', (req, res) => {
                         <li data-channel="general">General</li>
                         <li data-channel="random">Random</li>
                     </ul>
-                    <button id="open-ban-panel">Ban/Unban Panel</button>
                 </div>
                 <div class="main">
                     <div class="chat" id="messages"></div>
@@ -237,6 +262,13 @@ app.get('/', (req, res) => {
                 <div class="online-users">
                     <h2>Online Users</h2>
                     <ul id="users"></ul>
+                </div>
+            </div>
+            <div class="settings-panel" id="settings-panel">
+                <img id="user-pfp" src="${DEFAULT_PROFILE_PICTURE}" alt="Profile Picture">
+                <div class="user-info">
+                    <div class="username" id="user-username">Username</div>
+                    <div class="userid" id="user-userid">#0000</div>
                 </div>
             </div>
             <div class="ban-panel" id="ban-panel">
@@ -255,15 +287,19 @@ app.get('/', (req, res) => {
                 const usersList = document.getElementById('users');
                 const channelsList = document.getElementById('channels');
                 const banPanel = document.getElementById('ban-panel');
-                const openBanPanelButton = document.getElementById('open-ban-panel');
-                const closeBanPanelButton = document.getElementById('close-ban-panel');
+                const settingsPanel = document.getElementById('settings-panel');
+                const userPfp = document.getElementById('user-pfp');
+                const userUsername = document.getElementById('user-username');
+                const userUserid = document.getElementById('user-userid');
                 const banButton = document.getElementById('ban-button');
                 const unbanButton = document.getElementById('unban-button');
+                const closeBanPanelButton = document.getElementById('close-ban-panel');
                 const passcodeInput = document.getElementById('passcode');
                 const usernameToBanInput = document.getElementById('username-to-ban');
                 const banReasonInput = document.getElementById('ban-reason');
 
                 let currentChannel = 'general';
+                let currentUser = { username: '', userid: '', profilePicture: DEFAULT_PROFILE_PICTURE };
 
                 // Format timestamp
                 function formatTimestamp(date) {
@@ -312,6 +348,13 @@ app.get('/', (req, res) => {
                     \`).join('');
                 }
 
+                // Update settings panel
+                function updateSettingsPanel(user) {
+                    userPfp.src = user.profilePicture;
+                    userUsername.textContent = user.username;
+                    userUserid.textContent = \`#\${user.userid}\`;
+                }
+
                 // Event listeners
                 channelsList.addEventListener('click', (e) => {
                     if (e.target.tagName === 'LI') {
@@ -327,8 +370,8 @@ app.get('/', (req, res) => {
                 });
 
                 // Ban/Unban panel logic
-                openBanPanelButton.addEventListener('click', () => {
-                    banPanel.style.display = 'block';
+                settingsPanel.addEventListener('click', () => {
+                    banPanel.style.display = banPanel.style.display === 'block' ? 'none' : 'block';
                 });
 
                 closeBanPanelButton.addEventListener('click', () => {
@@ -383,13 +426,22 @@ app.get('/', (req, res) => {
                 });
 
                 socket.on('user banned', (data) => {
-                    alert(\`You have been banned. Reason: \${data.reason}\`);
                     window.location.reload();
                 });
 
                 socket.on('user unbanned', () => {
-                    alert('You have been unbanned.');
                     window.location.reload();
+                });
+
+                socket.on('update profile', (user) => {
+                    currentUser = user;
+                    updateSettingsPanel(user);
+                });
+
+                // Initialize user
+                socket.on('init user', (user) => {
+                    currentUser = user;
+                    updateSettingsPanel(user);
                 });
             </script>
         </body>
@@ -430,6 +482,9 @@ io.on('connection', (socket) => {
             db.all('SELECT * FROM messages', (err, rows) => {
                 socket.emit('load messages', rows);
             });
+
+            // Initialize user
+            socket.emit('init user', { username, userid, profilePicture });
         });
 
         // Handle new messages
@@ -488,6 +543,7 @@ io.on('connection', (socket) => {
                 db.run('UPDATE users SET username = ?, profilePicture = ? WHERE ip = ?', [user.username, user.profilePicture, user.ip], (err) => {
                     if (err) return console.error(err);
                     io.emit('user connected', { activeUsers: Array.from(activeUsers.values()) });
+                    socket.emit('update profile', user);
                 });
             }
         });
